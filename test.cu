@@ -82,6 +82,8 @@ class memory_mapper {
 };
 
 void do_test(int num_arguments, char** argument_array) {
+  srand(112233);
+  
   // --
   // Create data
 
@@ -95,8 +97,8 @@ void do_test(int num_arguments, char** argument_array) {
   
   thrust::fill(thrust::host, h_output.begin(), h_output.end(), -1);
 
-  thrust::device_vector<int> input = h_input;
-  thrust::device_vector<int> output_thrust = h_output;
+  thrust::device_vector<int> input  = h_input;
+  thrust::device_vector<int> output = h_output;
 
   // --
   // Setup data
@@ -137,6 +139,7 @@ void do_test(int num_arguments, char** argument_array) {
     cudaSetDevice(i);
     cudaStreamCreateWithFlags(&info.stream, cudaStreamNonBlocking);
     cudaEventCreateWithFlags(&info.event, cudaEventDisableTiming);
+    // cudaEventCreate(&info.event);
     infos.push_back(info);
   }
 
@@ -154,21 +157,27 @@ void do_test(int num_arguments, char** argument_array) {
   };
 
   cudaDeviceSynchronize();
+  
   nvtxRangePushA("thrust_work");
   std::vector<std::thread> threads;
-  for (unsigned int i = 0; i < num_gpus; ++i) {
+  for (unsigned int i = 0; i < (unsigned int)num_gpus; ++i) {
     threads.push_back(std::thread([&, i]() {
       cudaSetDevice(i);
 
-      auto input_begin = input.begin() + chunk_size * i;
-      auto input_end = input.begin() + chunk_size * (i + 1);
-      auto output_begin = output_thrust.begin() + chunk_size * i;
+      auto input_begin  = input.begin() + chunk_size * i;
+      auto input_end    = input.begin() + chunk_size * (i + 1);
+      auto output_begin = output.begin() + chunk_size * i;
 
-      if (i == num_gpus - 1)
+      if (i == (unsigned int)num_gpus - 1)
         input_end = input.end();
 
-      thrust::copy_if(thrust::cuda::par.on(infos[i].stream), input_begin,
-                      input_end, output_begin, fn);
+      thrust::copy_if(
+        thrust::cuda::par.on(infos[i].stream),
+        input_begin,
+        input_end,
+        output_begin,
+        fn
+      );
       cudaEventRecord(infos[i].event, infos[i].stream);
     }));
   }
@@ -179,13 +188,13 @@ void do_test(int num_arguments, char** argument_array) {
   for (int i = 0; i < num_gpus; i++)
     cudaStreamWaitEvent(master_stream, infos[i].event, 0);
 
-  cudaStreamSynchronize(master_stream);
-
+  // cudaStreamSynchronize(master_stream);
+  for(int i = 0; i < num_gpus; i++) {cudaSetDevice(i); cudaDeviceSynchronize();}
+  
   nvtxRangePop();
 
-  thrust::host_vector<int> ttmp = output_thrust;
-  thrust::copy(ttmp.begin(), ttmp.begin() + 40,
-               std::ostream_iterator<int>(std::cout, " "));
+  thrust::host_vector<int> ttmp = output;
+  thrust::copy(ttmp.begin(), ttmp.begin() + 100, std::ostream_iterator<int>(std::cout, " "));
   std::cout << std::endl;
 }
 
