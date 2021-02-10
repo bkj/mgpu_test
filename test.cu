@@ -9,7 +9,7 @@
 
 template <typename type_t>
 class physical_memory {
-  using allocation_handle_t = CUmemGenericAllocationHandle;
+  using allocation_handle_t     = CUmemGenericAllocationHandle;
   using allocation_properties_t = CUmemAllocationProp;
 
   allocation_handle_t alloc_handle;
@@ -21,15 +21,13 @@ class physical_memory {
 
   int device_id;
 
-  physical_memory(std::size_t _size, int _device_id)
-      : size(_size), device_id(_device_id), flags(0) {
+  physical_memory(std::size_t _size, int _device_id) : size(_size), device_id(_device_id), flags(0) {
     // Set properties of the allocation to create.
-    prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+    prop.type          = CU_MEM_ALLOCATION_TYPE_PINNED;
     prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-    prop.location.id = device_id;
+    prop.location.id   = device_id;
 
-    cuMemGetAllocationGranularity(&granularity, &prop,
-                                  CU_MEM_ALLOC_GRANULARITY_MINIMUM);
+    cuMemGetAllocationGranularity(&granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM);
 
     padded_size = (size + granularity - 1) / granularity;
     cuMemCreate(&alloc_handle, padded_size, &prop, flags);
@@ -63,7 +61,8 @@ class memory_mapper {
                 const std::vector<int>& mapping_devices,
                 unsigned int chunk)
       : virt(virt_arg) {
-    const size_t size = phys_arg.padded_size;
+        
+    const size_t size    = phys_arg.padded_size;
     const size_t offset = size * chunk;
     cuMemMap(virt.ptr + offset, size, 0, phys_arg.alloc_handle, 0);
 
@@ -93,11 +92,11 @@ void do_test(int num_arguments, char** argument_array) {
 
   for (int i = 0; i < n; i++)
     h_input[i] = rand() % 1000000;
+  
   thrust::fill(thrust::host, h_output.begin(), h_output.end(), -1);
 
   thrust::device_vector<int> input = h_input;
   thrust::device_vector<int> output_thrust = h_output;
-  thrust::device_vector<int> output_kernel = h_output;
 
   // --
   // Setup data
