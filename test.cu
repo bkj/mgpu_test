@@ -85,7 +85,7 @@ void do_test(int num_arguments, char** argument_array) {
   // --
   // Create data
 
-  int n = 400000;
+  int n = 1000000;
 
   thrust::host_vector<int> h_input(n);
   thrust::host_vector<int> h_output(n);
