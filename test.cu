@@ -7,79 +7,79 @@
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 
-template <typename type_t>
-class physical_memory {
-  using allocation_handle_t     = CUmemGenericAllocationHandle;
-  using allocation_properties_t = CUmemAllocationProp;
+// template <typename type_t>
+// class physical_memory {
+//   using allocation_handle_t     = CUmemGenericAllocationHandle;
+//   using allocation_properties_t = CUmemAllocationProp;
 
-  allocation_handle_t alloc_handle;
-  allocation_properties_t prop = {};
-  std::size_t granularity;
-  std::size_t padded_size;
-  std::size_t size;
-  unsigned long long flags;  // not used within CUDA
+//   allocation_handle_t alloc_handle;
+//   allocation_properties_t prop = {};
+//   std::size_t granularity;
+//   std::size_t padded_size;
+//   std::size_t size;
+//   unsigned long long flags;  // not used within CUDA
 
-  int device_id;
+//   int device_id;
 
-  physical_memory(std::size_t _size, int _device_id) : size(_size), device_id(_device_id), flags(0) {
-    // Set properties of the allocation to create.
-    prop.type          = CU_MEM_ALLOCATION_TYPE_PINNED;
-    prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-    prop.location.id   = device_id;
+//   physical_memory(std::size_t _size, int _device_id) : size(_size), device_id(_device_id), flags(0) {
+//     // Set properties of the allocation to create.
+//     prop.type          = CU_MEM_ALLOCATION_TYPE_PINNED;
+//     prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+//     prop.location.id   = device_id;
 
-    cuMemGetAllocationGranularity(&granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM);
+//     cuMemGetAllocationGranularity(&granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM);
 
-    padded_size = (size + granularity - 1) / granularity;
-    cuMemCreate(&alloc_handle, padded_size, &prop, flags);
-  }
-};
+//     padded_size = (size + granularity - 1) / granularity;
+//     cuMemCreate(&alloc_handle, padded_size, &prop, flags);
+//   }
+// };
 
-template <typename type_t>
-class virtual_memory {
-  using allocation_handle_t = CUmemGenericAllocationHandle;
-  using allocation_properties_t = CUmemAllocationProp;
+// template <typename type_t>
+// class virtual_memory {
+//   using allocation_handle_t = CUmemGenericAllocationHandle;
+//   using allocation_properties_t = CUmemAllocationProp;
 
-  type_t* ptr;               // pointer
-  std::size_t size;          // padded size
-  std::size_t alignment;     // alignment of reserved range
-  type_t* addr;              // Fixed starting address range requested
-  unsigned long long flags;  // not used within CUDA
+//   type_t* ptr;               // pointer
+//   std::size_t size;          // padded size
+//   std::size_t alignment;     // alignment of reserved range
+//   type_t* addr;              // Fixed starting address range requested
+//   unsigned long long flags;  // not used within CUDA
 
-  virtual_memory(std::size_t padded_size)
-      : size(padded_size), alignment(0), addr(0), flags(0) {
-    cuMemAddressReserve(&ptr, size, alignment, addr, flags);
-  }
-};
+//   virtual_memory(std::size_t padded_size)
+//       : size(padded_size), alignment(0), addr(0), flags(0) {
+//     cuMemAddressReserve(&ptr, size, alignment, addr, flags);
+//   }
+// };
 
-template <typename type_t>
-class memory_mapper {
-  const virtual_memory<type_t>& virt;
+// template <typename type_t>
+// class memory_mapper {
+//   const virtual_memory<type_t>& virt;
 
- public:
-  memory_mapper(const virtual_memory<type_t>& virt_arg,
-                const physical_memory<type_t>& phys_arg,
-                const std::vector<int>& mapping_devices,
-                unsigned int chunk)
-      : virt(virt_arg) {
+//  public:
+//   memory_mapper(const virtual_memory<type_t>& virt_arg,
+//                 const physical_memory<type_t>& phys_arg,
+//                 const std::vector<int>& mapping_devices,
+//                 unsigned int chunk)
+//       : virt(virt_arg) {
         
-    const size_t size    = phys_arg.padded_size;
-    const size_t offset = size * chunk;
-    cuMemMap(virt.ptr + offset, size, 0, phys_arg.alloc_handle, 0);
+//     const size_t size    = phys_arg.padded_size;
+//     const size_t offset = size * chunk;
+//     cuMemMap(virt.ptr + offset, size, 0, phys_arg.alloc_handle, 0);
 
-    std::vector<CUmemAccessDesc> access_descriptors(mapping_devices.size());
+//     std::vector<CUmemAccessDesc> access_descriptors(mapping_devices.size());
 
-    for (unsigned int id = 0; id < mapping_devices.size(); id++) {
-      access_descriptors[id].location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-      access_descriptors[id].location.id = mapping_devices[id];
-      access_descriptors[id].flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-    }
+//     for (unsigned int id = 0; id < mapping_devices.size(); id++) {
+//       access_descriptors[id].location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+//       access_descriptors[id].location.id = mapping_devices[id];
+//       access_descriptors[id].flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+//     }
 
-    cuMemSetAccess(virt.ptr + offset, size, access_descriptors.data(),
-                   access_descriptors.size());
-  }
+//     cuMemSetAccess(virt.ptr + offset, size, access_descriptors.data(),
+//                    access_descriptors.size());
+//   }
 
-  ~memory_mapper() { cuMemUnmap(virt.ptr, virt.padded_size); }
-};
+//   ~memory_mapper() { cuMemUnmap(virt.ptr, virt.padded_size); }
+// };
 
 void do_test(int num_arguments, char** argument_array) {
   srand(112233);
@@ -87,7 +87,7 @@ void do_test(int num_arguments, char** argument_array) {
   // --
   // Create data
 
-  int n = 1000000;
+  int n = 2000000;
 
   thrust::host_vector<int> h_input(n);
   thrust::host_vector<int> h_output(n);
@@ -160,6 +160,7 @@ void do_test(int num_arguments, char** argument_array) {
   
   nvtxRangePushA("thrust_work");
   std::vector<std::thread> threads;
+  // #pragma omp parallel for num_threads(num_gpus)
   for (unsigned int i = 0; i < (unsigned int)num_gpus; ++i) {
     threads.push_back(std::thread([&, i]() {
       cudaSetDevice(i);
@@ -188,8 +189,8 @@ void do_test(int num_arguments, char** argument_array) {
   for (int i = 0; i < num_gpus; i++)
     cudaStreamWaitEvent(master_stream, infos[i].event, 0);
 
-  // cudaStreamSynchronize(master_stream);
-  for(int i = 0; i < num_gpus; i++) {cudaSetDevice(i); cudaDeviceSynchronize();}
+  cudaStreamSynchronize(master_stream);
+  // for(int i = 0; i < num_gpus; i++) {cudaSetDevice(i); cudaDeviceSynchronize();}
   
   nvtxRangePop();
 
