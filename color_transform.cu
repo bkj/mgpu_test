@@ -14,6 +14,54 @@
 
 #define MANAGED
 
+__global__ void fn_kernel(
+  const int* indptr,
+  const int* indices,
+  const float* data,
+  int* colors,
+  const int* randoms,
+  const int iteration,
+  int* input_begin,
+  const int n
+) {
+  
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < n) {
+    int vertex = input_begin[idx];
+    if(vertex == -1) return;
+    
+    int start  = indptr[vertex];
+    int end    = indptr[vertex + 1];
+    int degree = end - start;
+
+    bool colormax = true;
+    bool colormin = true;
+    int color     = iteration * 2;
+
+    for (int i = 0; i < degree; i++) {
+      int u = indices[start + i];
+
+      if (colors[u] != -1 && (colors[u] != color + 1) && (colors[u] != color + 2) || (vertex == u))
+        continue;
+      if (randoms[vertex] <= randoms[u])
+        colormax = false;
+      if (randoms[vertex] >= randoms[u])
+        colormin = false;
+    }
+
+    if (colormax) {
+      colors[vertex]   = color + 1;
+      input_begin[idx] = -1; return;
+    } else if (colormin) {
+      colors[vertex]   = color + 2;
+      input_begin[idx] = -1; return;
+    } else {
+      return;
+    }
+  }
+}
+    
+    
 struct my_timer_t {
   float time;
 
@@ -154,9 +202,9 @@ void read_binary(std::string filename) {
     cudaMemAdvise(g_indices, n_nnz * sizeof(int), cudaMemAdviseSetReadMostly, i);
     cudaMemAdvise(g_data, n_nnz * sizeof(float), cudaMemAdviseSetReadMostly, i);
     
-    cudaMemPrefetchAsync(g_indptr, (n_rows + 1) * sizeof(int), i);
-    cudaMemPrefetchAsync(g_indices, n_nnz * sizeof(int), i);
-    cudaMemPrefetchAsync(g_data, n_nnz * sizeof(float), i);
+    // cudaMemPrefetchAsync(g_indptr, (n_rows + 1) * sizeof(int), i);
+    // cudaMemPrefetchAsync(g_indices, n_nnz * sizeof(int), i);
+    // cudaMemPrefetchAsync(g_data, n_nnz * sizeof(float), i);
   }
 #endif  
 }
@@ -171,9 +219,9 @@ void do_test() {
   
   std::vector<int> tmp;
   for(int i = 0; i < n_rows; i++) tmp.push_back(i);
-  std::random_device rd;
-  std::mt19937 g(rd());
-  std::shuffle(tmp.begin(), tmp.end(), g);
+  // std::random_device rd;
+  // std::mt19937 g(rd());
+  // std::shuffle(tmp.begin(), tmp.end(), g);
   
   thrust::host_vector<int> h_input(n_rows);
   thrust::host_vector<int> h_output(n_rows);
@@ -192,21 +240,35 @@ void do_test() {
   // cudaMallocManaged(&colors, n_rows * sizeof(int));
   // cudaMemcpy(colors, h_colors, n_rows * sizeof(int), cudaMemcpyHostToDevice);
   
-  thrust::device_vector<int> d_colors;
-  d_colors.resize(n_rows);
-  thrust::fill(thrust::device, d_colors.begin(), d_colors.end(), -1);
-  int* colors  = d_colors.data().get();
-
-  int* h_randoms = (int*)malloc(n_rows * sizeof(int));
-  for(int i = 0; i < n_rows; i++) h_randoms[i] = rand() % n_rows;
+  // Color
+  int* h_colors = (int*)malloc(n_rows * sizeof(int));
+  for(int i = 0; i < n_rows; i++) h_colors[i] = -1;
   
+  int* colors;
+// #ifdef MANAGED
+//   cudaMallocManaged(&colors, n_rows * sizeof(int));
+// #else
+  cudaMalloc(&colors, n_rows * sizeof(int));
+// #endif
+
+  cudaMemcpy(colors, h_colors, n_rows * sizeof(int), cudaMemcpyHostToDevice);
+
+// #ifdef MANAGED
+//   int chunk_size_ = (input.size() + num_gpus - 1) / num_gpus;
+//   for(int i = 0; i < num_gpus; i++) {
+//     cudaMemAdvise(colors, n_rows * sizeof(int), cudaMemAdviseSetReadMostly, i);
+//     cudaMemAdvise(colors + (i * chunk_size_), chunk_size_ * sizeof(int), cudaMemAdviseSetPreferredLocation, i);
+//   }
+// #endif
+  
+  // Random
   int* randoms;
   cudaMallocManaged(&randoms, n_rows * sizeof(int));
-  cudaMemcpy(randoms, h_randoms, n_rows * sizeof(int), cudaMemcpyHostToDevice);
+  for(int i = 0; i < n_rows; i++) randoms[i] = rand() % n_rows;
+  
 #ifdef MANAGED
   for(int i = 0; i < num_gpus; i++) {
     cudaMemAdvise(randoms, n_rows * sizeof(int), cudaMemAdviseSetReadMostly, i);
-    cudaMemPrefetchAsync(randoms, n_rows * sizeof(int), i);
   }
 #endif
   
@@ -215,6 +277,8 @@ void do_test() {
   
   cudaSetDevice(0);  
   cudaDeviceSynchronize();
+  my_timer_t t;
+  t.begin();
   
   // int new_sizes[num_gpus];
   
@@ -225,110 +289,40 @@ void do_test() {
   nvtxRangePushA("thrust_work");
   
   int iteration = 0;
-// while(input.size() > 4) {
 while(iteration < 29) {
-  // printf("iteration: %d\n", iteration);
   
   int chunk_size  = (input.size() + num_gpus - 1) / num_gpus;
+  int* input_ = input.data().get() ;
   
-  #pragma omp parallel for num_threads(num_gpus)
+  // #pragma omp parallel for num_threads(num_gpus)
   for(int i = 0 ; i < num_gpus ; i++) {
     
     cudaSetDevice(i);
-
-    auto fn = [indptr, indices, data, colors, randoms, iteration] __host__ __device__(int const& vertex) {
-      if(vertex == -1) return -1;
-      
-      int start  = indptr[vertex];
-      int end    = indptr[vertex + 1];
-      int degree = end - start;
-
-      bool colormax = true;
-      bool colormin = true;
-      int color     = iteration * 2;
-
-      for (int i = 0; i < degree; i++) {
-        int u = indices[start + i];
-
-        if (colors[u] != -1 && (colors[u] != color + 1) && (colors[u] != color + 2) || (vertex == u))
-          continue;
-        if (randoms[vertex] <= randoms[u])
-          colormax = false;
-        if (randoms[vertex] >= randoms[u])
-          colormin = false;
-      }
-
-      if (colormax) {
-        colors[vertex] = color + 1;
-        return -1;
-      } else if (colormin) {
-        colors[vertex] = color + 2;
-        return -1;
-      } else {
-        return vertex;
-      }
-    };
     
-    auto input_begin  = input.begin() + chunk_size * i;
-    auto input_end    = input.begin() + chunk_size * (i + 1);
-    auto output_begin = output.begin() + chunk_size * i;
-    if(i == num_gpus - 1) input_end = input.end();
-    
-    thrust::transform(
-      thrust::cuda::par.on(infos[i].stream),
-      input_begin,
-      input_end,
-      input_begin,
-      fn
+    int* input_begin = input_ + chunk_size * i;
+    fn_kernel<<<(chunk_size + 255) / 256, 256, 0, infos[i].stream>>>(
+      indptr, indices, data, colors, randoms, iteration, input_begin, chunk_size
     );
-    // new_sizes[i] = (int)thrust::distance(output_begin, new_output_end);
     cudaEventRecord(infos[i].event, infos[i].stream);
   }
   
   for(int i = 0; i < num_gpus; i++)
     cudaStreamWaitEvent(master_stream, infos[i].event, 0);
   cudaStreamSynchronize(master_stream);
-  
-  // int total_length = 0;
-  // int offsets[num_gpus];
-  // offsets[0] = 0;
-  // for(int i = 1 ; i < num_gpus ; i++) offsets[i] = new_sizes[i - 1] + offsets[i - 1];
-  // for(int i = 0 ; i < num_gpus ; i++) total_length += new_sizes[i];
-
-  // // Reduce
-  // #pragma omp parallel for num_threads(num_gpus)
-  // for(int i = 0; i < num_gpus; i++) {
-  //   cudaSetDevice(i);
-
-  //   auto output_begin = output.begin() + chunk_size * i;
-  //   thrust::copy_n(
-  //     thrust::cuda::par.on(infos[i].stream),
-  //     output_begin, 
-  //     new_sizes[i], 
-  //     input.begin() + offsets[i]
-  //   );
-    
-  //   cudaEventRecord(infos[i].event, infos[i].stream);
-  // }
-  
-  // for(int i = 0; i < num_gpus; i++)
-  //   cudaStreamWaitEvent(master_stream, infos[i].event, 0);
-  
-  // cudaStreamSynchronize(master_stream);
-  
-  // input.resize(total_length);
-  // output.resize(total_length);
     
   iteration++;
 }
   nvtxRangePop();
   
   // Log
-  thrust::host_vector<int> out = d_colors;
+  thrust::device_vector<int> d_out(colors, colors + n_rows);
+  thrust::host_vector<int> out = d_out;
   thrust::copy(out.begin(), out.begin() + 32, std::ostream_iterator<int>(std::cout, " "));
   std::cout << std::endl;
   
   cudaSetDevice(0);
+  t.end();  
+  std::cout << "elapsed: " << t.milliseconds() << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -340,16 +334,9 @@ int main(int argc, char** argv) {
 
   int num_gpus = get_num_gpus();
 
-  my_timer_t t;
-  t.begin();
-  
-  int num_iters = 10;
+  int num_iters = 4;
   for(int i = 0; i < num_iters; i++)
     do_test();
-  
-  t.end();
-  
-  std::cout << "elapsed: " << t.milliseconds() << std::endl;
   
   return EXIT_SUCCESS;
 }

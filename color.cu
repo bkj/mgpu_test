@@ -10,6 +10,9 @@
 #include <thrust/iterator/counting_iterator.h>
 #include "thrust/random.h"
 
+#include <algorithm>
+#include <random>
+
 #define MANAGED
 
 int n_rows;
@@ -152,46 +155,83 @@ void read_binary(std::string filename) {
     cudaMemAdvise(g_indptr, (n_rows + 1) * sizeof(int), cudaMemAdviseSetReadMostly, i);
     cudaMemAdvise(g_indices, n_nnz * sizeof(int), cudaMemAdviseSetReadMostly, i);
     cudaMemAdvise(g_data, n_nnz * sizeof(float), cudaMemAdviseSetReadMostly, i);
+    
+    cudaMemPrefetchAsync(g_indptr, (n_rows + 1) * sizeof(int), i);
+    cudaMemPrefetchAsync(g_indices, n_nnz * sizeof(int), i);
+    cudaMemPrefetchAsync(g_data, n_nnz * sizeof(float), i);
   }
 #endif  
 }
 
 void do_test() {
   srand(123123123);
-  
+
+  cudaSetDevice(0);  
+  cudaDeviceSynchronize();
+
   int num_gpus = get_num_gpus();
 
   // --
   // initialize frontier
   
+  // thrust::host_vector<int> h_input(n_rows);
+  // thrust::host_vector<int> h_output(n_rows);
+  // for(int i = 0; i < n_rows; i++) h_input[i] = i;
+  // for(int i = 0; i < n_rows; i++) h_output[i] = -1;
+  std::vector<int> tmp;
+  for(int i = 0; i < n_rows; i++) tmp.push_back(i);
+  std::random_device rd;
+  std::mt19937 g(rd());
+  std::shuffle(tmp.begin(), tmp.end(), g);
+  
   thrust::host_vector<int> h_input(n_rows);
   thrust::host_vector<int> h_output(n_rows);
-  for(int i = 0; i < n_rows; i++) h_input[i] = i;
+  for(int i = 0; i < n_rows; i++) h_input[i] = tmp[i];
   for(int i = 0; i < n_rows; i++) h_output[i] = -1;
-
+  
   thrust::device_vector<int> input   = h_input;
   thrust::device_vector<int> output  = h_output;
   
   // --
   // initialize data structures
   
-  thrust::device_vector<int> d_colors;
-  d_colors.resize(n_rows);
-  thrust::fill(thrust::device, d_colors.begin(), d_colors.end(), -1);
+  // thrust::device_vector<int> d_colors;
+  // d_colors.resize(n_rows);
+  // thrust::fill(thrust::device, d_colors.begin(), d_colors.end(), -1);
+  // int* colors  = d_colors.data().get();
 
-  int* h_randoms = (int*)malloc(n_rows * sizeof(int));
-  for(int i = 0; i < n_rows; i++) h_randoms[i] = rand() % n_rows;
+  // Color
+  int* h_colors = (int*)malloc(n_rows * sizeof(int));
+  for(int i = 0; i < n_rows; i++) h_colors[i] = -1;
   
+  int* colors;
+// #ifdef MANAGED
+//   cudaMallocManaged(&colors, n_rows * sizeof(int));
+// #else
+  cudaMalloc(&colors, n_rows * sizeof(int));
+// #endif
+
+  cudaMemcpy(colors, h_colors, n_rows * sizeof(int), cudaMemcpyHostToDevice);
+
+// #ifdef MANAGED
+//   int chunk_size_ = (input.size() + num_gpus - 1) / num_gpus;
+//   for(int i = 0; i < num_gpus; i++) {
+//     cudaMemAdvise(colors, n_rows * sizeof(int), cudaMemAdviseSetReadMostly, i);
+//     // cudaMemAdvise(colors + i * chunk_size_, chunk_size_ * sizeof(int), cudaMemAdviseSetPreferredLocation, i);
+//   }
+// #endif
+  
+  // Random
   int* randoms;
   cudaMallocManaged(&randoms, n_rows * sizeof(int));
-  cudaMemcpy(randoms, h_randoms, n_rows * sizeof(int), cudaMemcpyHostToDevice);
+  for(int i = 0; i < n_rows; i++) randoms[i] = rand() % n_rows;
+  
 #ifdef MANAGED
-  for(int i = 0; i < num_gpus; i++)
+  for(int i = 0; i < num_gpus; i++) {
     cudaMemAdvise(randoms, n_rows * sizeof(int), cudaMemAdviseSetReadMostly, i);
+  }
 #endif
 
-  int* colors  = d_colors.data().get();
-  
   // --
   // Run
   
@@ -201,6 +241,7 @@ void do_test() {
   t.begin();
 
   int new_sizes[num_gpus];
+  int offsets[num_gpus];
   
   int* indptr  = g_indptr;
   int* indices = g_indices;
@@ -217,7 +258,9 @@ void do_test() {
     for(int i = 0 ; i < num_gpus ; i++) {
       
       cudaSetDevice(i);
-
+      
+      // cudaMemPrefetchAsync(colors + i * chunk_size, chunk_size * sizeof(int), i, infos[i].stream);
+      
       auto fn = [indptr, indices, data, colors, randoms, iteration] __host__ __device__(int const& vertex) -> bool {
         int start  = indptr[vertex];
         int end    = indptr[vertex + 1];
@@ -270,7 +313,6 @@ void do_test() {
     cudaStreamSynchronize(master_stream);
     
     int total_length = 0;
-    int offsets[num_gpus];
     offsets[0] = 0;
     for(int i = 1 ; i < num_gpus ; i++) offsets[i] = new_sizes[i - 1] + offsets[i - 1];
     for(int i = 0 ; i < num_gpus ; i++) total_length += new_sizes[i];
@@ -295,13 +337,14 @@ void do_test() {
     output.resize(total_length);
       
     iteration++;
-    t.end();  
-    std::cout << "elapsed: " << t.milliseconds() << std::endl;
+    // t.end();  
+    // std::cout << "elapsed: " << t.milliseconds() << std::endl;
   }
   nvtxRangePop();
   
   // Log
-  thrust::host_vector<int> out = d_colors;
+  thrust::device_vector<int> d_out(colors, colors + n_rows);
+  thrust::host_vector<int> out = d_out;
   thrust::copy(out.begin(), out.begin() + 32, std::ostream_iterator<int>(std::cout, " "));
   std::cout << std::endl;
   
