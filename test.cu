@@ -282,8 +282,8 @@ void do_test() {
   
   cudaSetDevice(0);
   
-  t.end();  
-  std::cout << "elapsed: " << t.milliseconds() << std::endl;
+  // t.end();  
+  // std::cout << "elapsed: " << t.milliseconds() << std::endl;
 
 }
 

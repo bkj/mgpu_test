@@ -5,7 +5,7 @@ from scipy.io import mmread
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--inpath', type=str, default='graph500-scale18-ef16_adj.mmio')
+    parser.add_argument('--inpath', type=str, required=True)
     args = parser.parse_args()
     
     args.outpath = args.inpath.replace('.mmio', '.bin').replace('.mtx', '.bin')

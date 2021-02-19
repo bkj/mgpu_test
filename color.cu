@@ -125,34 +125,22 @@ void read_binary(std::string filename) {
   err = fread(&n_cols, sizeof(int), 1, file);
   err = fread(&n_nnz,  sizeof(int), 1, file);
 
-  h_indptr  = (int*  )malloc((n_rows + 1) * sizeof(int));
-  h_indices = (int*  )malloc(n_nnz        * sizeof(int));
-  h_data    = (float*)malloc(n_nnz        * sizeof(float));
+  std::cout << "n_rows: " << n_rows << std::endl;
+  std::cout << "n_cols: " << n_cols << std::endl;
+  std::cout << "n_nnz: " << n_nnz << std::endl;
 
-  err = fread(h_indptr,  sizeof(int),   n_rows + 1, file);
-  err = fread(h_indices, sizeof(int),   n_nnz,      file);
-  err = fread(h_data,    sizeof(float), n_nnz,      file);
-
-#ifdef MANAGED
   cudaMallocManaged(&g_indptr,  (n_rows + 1) * sizeof(int));
   cudaMallocManaged(&g_indices, n_nnz        * sizeof(int));
   cudaMallocManaged(&g_data,    n_nnz        * sizeof(float));
-#else
-  cudaMalloc(&g_indptr, (n_rows + 1) * sizeof(int));
-  cudaMalloc(&g_indices, n_nnz       * sizeof(int));
-  cudaMalloc(&g_data,    n_nnz       * sizeof(float));
-#endif
 
-  cudaMemcpy(g_indptr, h_indptr, (n_rows + 1) * sizeof(int), cudaMemcpyHostToDevice);
-  cudaMemcpy(g_indices, h_indices, (n_rows + 1) * sizeof(int), cudaMemcpyHostToDevice);
-  cudaMemcpy(g_data, h_data, (n_rows + 1) * sizeof(int), cudaMemcpyHostToDevice);
+  err = fread(g_indptr,  sizeof(int),   n_rows + 1, file);
+  err = fread(g_indices, sizeof(int),   n_nnz,      file);
+  err = fread(g_data,    sizeof(float), n_nnz,      file);
 
 #ifdef MANAGED
-  for(int i = 0; i < get_num_gpus(); i++) {
-    cudaMemAdvise(g_indptr, (n_rows + 1) * sizeof(int), cudaMemAdviseSetReadMostly, i);
-    cudaMemAdvise(g_indices, n_nnz * sizeof(int), cudaMemAdviseSetReadMostly, i);
-    cudaMemAdvise(g_data, n_nnz * sizeof(float), cudaMemAdviseSetReadMostly, i);
-  }
+  cudaMemAdvise(g_indptr,  (n_rows + 1) * sizeof(int),   cudaMemAdviseSetReadMostly, 0);
+  cudaMemAdvise(g_indices, n_nnz        * sizeof(int),   cudaMemAdviseSetReadMostly, 0);
+  cudaMemAdvise(g_data,    n_nnz        * sizeof(float), cudaMemAdviseSetReadMostly, 0);
 #endif  
 }
 
@@ -180,14 +168,13 @@ void do_test() {
   thrust::fill(thrust::device, d_colors.begin(), d_colors.end(), -1);
 
   int* h_randoms = (int*)malloc(n_rows * sizeof(int));
-  for(int i = 0; i < n_rows; i++) h_randoms[i] = rand() % n_rows;
+  for(int i = 0; i < n_rows; i++) h_randoms[i] = rand();
   
   int* randoms;
   cudaMallocManaged(&randoms, n_rows * sizeof(int));
   cudaMemcpy(randoms, h_randoms, n_rows * sizeof(int), cudaMemcpyHostToDevice);
 #ifdef MANAGED
-  for(int i = 0; i < num_gpus; i++)
-    cudaMemAdvise(randoms, n_rows * sizeof(int), cudaMemAdviseSetReadMostly, i);
+  cudaMemAdvise(randoms, n_rows * sizeof(int), cudaMemAdviseSetReadMostly, 0);
 #endif
 
   int* colors  = d_colors.data().get();
@@ -210,7 +197,7 @@ void do_test() {
   
   int iteration = 0;
   while(input.size() > 4) {
-
+    
     int chunk_size  = (input.size() + num_gpus - 1) / num_gpus;
     
     #pragma omp parallel for num_threads(num_gpus)
@@ -295,8 +282,7 @@ void do_test() {
     output.resize(total_length);
       
     iteration++;
-    t.end();  
-    std::cout << "elapsed: " << t.milliseconds() << std::endl;
+    // t.end(); std::cout << "elapsed: " << t.milliseconds() << std::endl;
   }
   nvtxRangePop();
   
