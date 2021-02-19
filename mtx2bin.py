@@ -6,6 +6,7 @@ from scipy.io import mmread
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--inpath', type=str, required=True)
+    parser.add_argument('--seed',   type=int, default=123)
     args = parser.parse_args()
     
     args.outpath = args.inpath.replace('.mmio', '.bin').replace('.mtx', '.bin')
@@ -13,9 +14,14 @@ def parse_args():
     return args
 
 args = parse_args()
+np.random.seed(args.seed)
 
 print(f"reading: {args.inpath}", file=sys.stderr)
 adj = mmread(args.inpath).tocsr()
+
+degrees = adj @ np.ones(adj.shape[0])
+sel = degrees < np.percentile(degrees, 95)
+adj = adj[sel][:,sel]
 
 sel = np.random.permutation(adj.shape[0])
 adj = adj[sel][:,sel]
