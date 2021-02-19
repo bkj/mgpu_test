@@ -152,6 +152,8 @@ void do_test() {
   
   int chunk_size  = (n_rows + num_gpus - 1) / num_gpus;
   
+  
+  // Inputs, chunked across devices
   all_inputs = (int**)malloc(num_gpus * sizeof(int*));
   for(int i = 0; i < num_gpus; i++) {
     cudaSetDevice(i);
@@ -173,6 +175,8 @@ void do_test() {
   }
   cudaSetDevice(0);
   
+  
+  // randoms, copied across devices
   int* h_randoms = (int*)malloc(n_rows * sizeof(int));
   for(int i = 0; i < n_rows; i++) h_randoms[i] = (int)rand();
   
@@ -186,7 +190,9 @@ void do_test() {
     all_randoms[i] = l_randoms;
   }
   cudaSetDevice(0);
-  
+
+
+  // colors, chunked across devices  
   all_colors = (int**)malloc(num_gpus * sizeof(int*));
 
   int* h_color = (int*)malloc(chunk_size * sizeof(int));
@@ -226,7 +232,7 @@ void do_test() {
     t.begin();
     
     #pragma omp parallel for 
-    for(int i = 0 ; i < num_gpus; i++) {
+    for(int i = num_gpus - 1 ; i >= 0; i--) {
       
       cudaSetDevice(i);
 
