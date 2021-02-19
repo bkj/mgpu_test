@@ -69,19 +69,6 @@ struct my_timer_t {
   cudaEvent_t start_, stop_;
 };
 
-template <typename index_t, typename iterator_t>
-void uniform_distribution(index_t begin, index_t end, iterator_t input) {
-  using type_t = typename std::iterator_traits<iterator_t>::value_type;
-
-  auto generate_random = [] __device__(int i) -> type_t {
-    thrust::default_random_engine rng;
-    rng.discard(i);
-    return rng();
-  };
-  
-  thrust::transform(thrust::make_counting_iterator(begin), thrust::make_counting_iterator(end), input, generate_random);
-}
-
 int get_num_gpus() {
   int num_gpus = -1;
   cudaGetDeviceCount(&num_gpus);
