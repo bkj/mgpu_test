@@ -1,6 +1,6 @@
 include Makefile.inc
 
-all: test color color_transform
+all: color
 
 test : test.cu $(DEPS)
 	mkdir -p bin

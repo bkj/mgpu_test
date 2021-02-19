@@ -11,6 +11,7 @@
 #include "thrust/random.h"
 
 #define MANAGED
+// #define SPREAD
 
 int n_rows;
 int n_cols;
@@ -32,7 +33,6 @@ struct gpu_info {
 std::vector<gpu_info> infos;
 
 cudaStream_t master_stream;
-
 
 struct my_timer_t {
   float time;
@@ -143,18 +143,35 @@ void read_binary(std::string filename) {
   cudaMalloc(&g_data,    n_nnz       * sizeof(float));
 #endif
 
-  cudaMemcpy(g_indptr, h_indptr, (n_rows + 1) * sizeof(int), cudaMemcpyHostToDevice);
-  cudaMemcpy(g_indices, h_indices, (n_rows + 1) * sizeof(int), cudaMemcpyHostToDevice);
-  cudaMemcpy(g_data, h_data, (n_rows + 1) * sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(g_indptr,  h_indptr,  (n_rows + 1) * sizeof(int  ), cudaMemcpyHostToDevice);
+  cudaMemcpy(g_indices, h_indices, n_nnz        * sizeof(int  ), cudaMemcpyHostToDevice);
+  cudaMemcpy(g_data,    h_data,    n_nnz        * sizeof(float), cudaMemcpyHostToDevice);
 
 #ifdef MANAGED
   for(int i = 0; i < get_num_gpus(); i++) {
-    cudaMemAdvise(g_indptr, (n_rows + 1) * sizeof(int), cudaMemAdviseSetReadMostly, i);
-    cudaMemAdvise(g_indices, n_nnz * sizeof(int), cudaMemAdviseSetReadMostly, i);
-    cudaMemAdvise(g_data, n_nnz * sizeof(float), cudaMemAdviseSetReadMostly, i);
+    cudaMemAdvise(g_indptr,  (n_rows + 1) * sizeof(int  ), cudaMemAdviseSetReadMostly, i);
+    cudaMemAdvise(g_indices, n_nnz        * sizeof(int  ), cudaMemAdviseSetReadMostly, i);
+    cudaMemAdvise(g_data,    n_nnz        * sizeof(float), cudaMemAdviseSetReadMostly, i);
   }
-#endif  
+#endif
+// #ifdef SPREAD
+//   int num_gpus = get_num_gpus();
+//   int* indptrs[num_gpus];
+//   int* indices[num_gpus];
+//   int* datas[num_gpus];
+  
+//   for(int i = 0; i < num_gpus; i++) {
+//     cudaSetDevice(i);
+//     cudaMemcpy(g_indptrs + i, g_indptr, (n_rows + 1) * sizeof(int), cudaMemcpyDeviceToDevice);
+//     cudaMemcpy(g_indices + i, g_indices, n_nnz * sizeof(int), cudaMemcpyDeviceToDevice);
+//     cudaMemcpy(g_data + i, g_data, n_nnz * sizeof(float), cudaMemcpyDeviceToDevice);
+//   }
+// #endif  
 }
+
+// ---------------------
+// ---------------------
+
 
 void do_test() {
   srand(123123123);
@@ -183,12 +200,12 @@ void do_test() {
   for(int i = 0; i < n_rows; i++) h_randoms[i] = rand() % n_rows;
   
   int* randoms;
-  cudaMallocManaged(&randoms, n_rows * sizeof(int));
+  cudaMalloc(&randoms, n_rows * sizeof(int));
   cudaMemcpy(randoms, h_randoms, n_rows * sizeof(int), cudaMemcpyHostToDevice);
-#ifdef MANAGED
-  for(int i = 0; i < num_gpus; i++)
-    cudaMemAdvise(randoms, n_rows * sizeof(int), cudaMemAdviseSetReadMostly, i);
-#endif
+// #ifdef MANAGED
+//   for(int i = 0; i < num_gpus; i++)
+//     cudaMemAdvise(randoms, n_rows * sizeof(int), cudaMemAdviseSetReadMostly, i);
+// #endif
 
   int* colors  = d_colors.data().get();
   
