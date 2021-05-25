@@ -228,11 +228,11 @@ void do_test() {
   nvtxRangePushA("thrust_work");
 
   int iteration = 0;
-  while(iteration < 16) {
+  while(iteration < 32) {
     t.begin();
     
-    #pragma omp parallel for 
-    for(int i = num_gpus - 1 ; i >= 0; i--) {
+    #pragma omp parallel for num_threads(num_gpus)
+    for(int i = 0 ; i < num_gpus; i++) {
       
       cudaSetDevice(i);
 
@@ -241,10 +241,10 @@ void do_test() {
       int* randoms = all_randoms[i];
       int* inputs  = all_inputs[i];
       
-      int offset   = i * chunk_size;
+      int woffset  = i * chunk_size;
       int* wcolors = all_colors[i];
       
-      auto fn = [indptr, indices, randoms, wcolors, offset, iteration, colors0, colors1, colors2, colors3, chunk_size] __host__ __device__(int const& vertex) {
+      auto fn = [indptr, indices, randoms, wcolors, woffset, iteration, colors0, colors1, colors2, colors3, chunk_size] __host__ __device__(int const& vertex) {
         if(vertex == -1) return -1;
         
         int start  = indptr[vertex];
@@ -256,6 +256,8 @@ void do_test() {
         int color     = iteration * 2;
 
         int rv = randoms[vertex];
+        
+        if(degree > 8) degree = 8;
         
         for (int i = 0; i < degree; i++) {
           int u = indices[start + i];
@@ -281,11 +283,13 @@ void do_test() {
         }
 
         if (colormax) {
-          wcolors[vertex - offset] = color + 1;
-          return -1;
+          wcolors[vertex - woffset] = color + 1;
+          // return -1;
+          return vertex;
         } else if (colormin) {
-          wcolors[vertex - offset] = color + 2;
-          return -1;
+          wcolors[vertex - woffset] = color + 2;
+          // return -1;
+          return vertex;
         } else {
           return vertex;
         }
@@ -303,6 +307,7 @@ void do_test() {
     }
     
     cudaSetDevice(0);
+    // #pragma omp parallel for num_threads(num_gpus)
     for(int i = 0; i < num_gpus; i++)
       cudaStreamWaitEvent(master_stream, infos[i].event, 0);
 
@@ -311,7 +316,7 @@ void do_test() {
     iteration++;
     t.end();
     per_iteration_times.push_back(t.milliseconds());
-    std::cout << t.milliseconds() << std::endl;
+    // std::cout << t.milliseconds() << std::endl;
   }
   nvtxRangePop();
   
